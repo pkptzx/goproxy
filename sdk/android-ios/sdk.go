@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
+	"sync"
 
 	"github.com/snail007/goproxy/core/lib/kcpcfg"
 	encryptconn "github.com/snail007/goproxy/core/lib/transport/encrypt"
@@ -34,7 +35,8 @@ var (
 	app *kingpin.Application
 	cpuProfilingFile, memProfilingFile, blockProfilingFile,
 	goroutineProfilingFile, threadcreateProfilingFile *os.File
-	isProfiling bool
+	isProfiling   bool
+	profilingLock = &sync.Mutex{}
 )
 
 type LogCallback interface {
@@ -415,7 +417,7 @@ func StartWithLog(serviceID, serviceArgsStr string, loggerCallback LogCallback) 
 	muxClientArgs.KCP = kcpArgs
 	dnsArgs.KCP = kcpArgs
 
-	log := logger.New(os.Stderr, "", logger.Ldate|logger.Ltime)
+	log := logger.New(os.Stdout, "", logger.Ldate|logger.Ltime)
 	flags := logger.Ldate
 	if *debug {
 		flags |= logger.Lshortfile | logger.Lmicroseconds
@@ -482,6 +484,8 @@ func Version() string {
 	return SDK_VERSION
 }
 func StartProfiling(storePath string) {
+	profilingLock.Lock()
+	defer profilingLock.Unlock()
 	if !isProfiling {
 		isProfiling = true
 		if storePath == "" {
@@ -496,6 +500,8 @@ func StartProfiling(storePath string) {
 	}
 }
 func StopProfiling() {
+	profilingLock.Lock()
+	defer profilingLock.Unlock()
 	if isProfiling {
 		isProfiling = false
 		pprof.StopCPUProfile()
@@ -507,6 +513,11 @@ func StopProfiling() {
 		block.WriteTo(blockProfilingFile, 1)
 		threadcreate := pprof.Lookup("threadcreate")
 		threadcreate.WriteTo(threadcreateProfilingFile, 1)
+		//close
+		goroutineProfilingFile.Close()
+		memProfilingFile.Close()
+		blockProfilingFile.Close()
+		threadcreateProfilingFile.Close()
 	}
 
 }
